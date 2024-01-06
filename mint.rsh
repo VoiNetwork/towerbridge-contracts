@@ -1,0 +1,80 @@
+'reach 0.1';
+'use strict';
+
+const ContractParams = Object({
+    sourceTokenId: UInt,
+    sourceChainId: UInt, // 1 = Algorand
+    w_name: Bytes(32),
+    w_symbol: Bytes(8),
+    w_url: Bytes(96),
+    w_metadata: Bytes(32),
+    w_supply: UInt,
+    w_decimals: UInt,
+});
+
+export const main = Reach.App(() => {
+    const Deployer = Participant('Deployer', {
+        parameters: ContractParams,
+        ready: Fun([], Null),
+    });
+
+    const UserAPI = API('UserAPI', {
+        mintToken: Fun([UInt, Address, Bytes(52), UInt], Null),  // Parmas: amount, source chain sender, source chain tx id, source block number
+    });
+
+    const V = View({
+        sourceTokenId: UInt,
+        sourceChainId: UInt,
+        targetTokenId: UInt,
+        targetChainId: UInt,
+        wrappedToken: Token,
+        totalMintedTokens: UInt,
+    });
+    init();
+
+    Deployer.only(() => {
+        const { sourceTokenId, sourceChainId, w_name, w_symbol, w_url, w_metadata, w_supply, w_decimals } = declassify(interact.parameters);
+    });
+    Deployer.publish(sourceTokenId, sourceChainId, w_name, w_symbol, w_url, w_metadata, w_supply, w_decimals);
+
+    V.sourceTokenId.set(sourceTokenId);
+    V.sourceChainId.set(sourceChainId);
+
+    // mint wrapped token
+    const wrappedToken = new Token({ name: w_name, symbol: w_symbol, url: w_url, metadata: w_metadata, supply: w_supply, decimals: w_decimals });
+
+    commit();
+
+    Deployer.interact.ready();
+    Deployer.publish();
+
+    const [done, totalMinted] = parallelReduce([false, 0])
+        .define(() => {
+            V.totalMintedTokens.set(totalMinted);
+        })
+        .invariant(balance() == 0)
+        .while(!done || Token.supply(wrappedToken) > 0 || !Token.destroyed(wrappedToken))
+        .api(
+            UserAPI.mintToken,
+            (amt, _, _, _) => {
+                assume(amt > 0, 'Amount of token mint must be greater than zero');
+                assume(balance(wrappedToken) >= amt, 'Not enough wrapped token balance to mint');
+
+                // todo: verify source chain tx is valid using ALGO.remote call to verification contract
+            },
+            (_, _, _, _) => [0],
+            (amt, _, _, _, k) => {
+                require(amt > 0);
+                require(balance(wrappedToken) >= amt);
+                transfer([0, [amt, wrappedToken]]).to(this);
+
+                k(null);
+                return [done, totalMinted + amt];
+            }
+        );
+
+    transfer([balance(), [balance(wrappedToken), wrappedToken]]).to(Deployer);
+    commit();
+
+    exit();
+});
