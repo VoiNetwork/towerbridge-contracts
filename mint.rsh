@@ -2,7 +2,7 @@
 'use strict';
 
 const ContractParams = Object({
-    sourceTokenId: UInt,
+    sourceTokenId: UInt, // 10458941 = TestNet USDC
     sourceChainId: UInt, // 1 = Algorand
     w_name: Bytes(32),
     w_symbol: Bytes(8),
@@ -28,7 +28,8 @@ export const main = Reach.App(() => {
         targetTokenId: UInt,
         targetChainId: UInt,
         wrappedToken: Token,
-        totalMintedTokens: UInt,
+        wrappedTokenSupply: UInt,
+        wrappedTokenMinted: UInt,
     });
     init();
 
@@ -39,6 +40,7 @@ export const main = Reach.App(() => {
 
     V.sourceTokenId.set(sourceTokenId);
     V.sourceChainId.set(sourceChainId);
+    V.wrappedTokenSupply.set(w_supply);
 
     // mint wrapped token
     const wrappedToken = new Token({ name: w_name, symbol: w_symbol, url: w_url, metadata: w_metadata, supply: w_supply, decimals: w_decimals });
@@ -50,10 +52,11 @@ export const main = Reach.App(() => {
 
     const [done, totalMinted] = parallelReduce([false, 0])
         .define(() => {
-            V.totalMintedTokens.set(totalMinted);
+            V.wrappedTokenMinted.set(totalMinted);
         })
         .invariant(balance() == 0)
-        .while(!done || Token.supply(wrappedToken) > 0 || !Token.destroyed(wrappedToken))
+        .invariant(balance(wrappedToken) + totalMinted == w_supply)
+        .while(!done || !Token.destroyed(wrappedToken))
         .api(
             UserAPI.mintToken,
             (amt, _, _, _) => {
