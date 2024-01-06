@@ -20,6 +20,7 @@ export const main = Reach.App(() => {
 
     const UserAPI = API('UserAPI', {
         mintToken: Fun([UInt, Address, Bytes(52), UInt], Null),  // Parmas: amount, source chain sender, source chain tx id, source block number
+        burnToken: Fun([UInt, Address], Null),                   // Parmas: amount, target chain receiver
     });
 
     const V = View({
@@ -65,7 +66,7 @@ export const main = Reach.App(() => {
 
                 // todo: verify source chain tx is valid using ALGO.remote call to verification contract
             },
-            (_, _, _, _) => [0],
+            (_, _, _, _) => [0, [0, wrappedToken]],
             (amt, _, _, _, k) => {
                 require(amt > 0);
                 require(balance(wrappedToken) >= amt);
@@ -73,6 +74,19 @@ export const main = Reach.App(() => {
 
                 k(null);
                 return [done, totalMinted + amt];
+            }
+        )
+        .api(UserAPI.burnToken,
+            (amt, _) => {
+                assume(amt > 0, 'Amount of token burn must be greater than zero');
+                assume(balance(wrappedToken) >= amt, 'Not enough wrapped token balance to burn');
+            },
+            (amt, _) => [0, [amt, wrappedToken]],
+            (amt, _, k) => {
+                require(amt > 0);
+
+                k(null);
+                return [done, totalMinted - amt];
             }
         );
 
