@@ -5,7 +5,7 @@ import readline from 'readline';
 import { ask } from '@reach-sh/stdlib/ask.mjs';
 import dotenv from 'dotenv';
 
-let stdlib = loadStdlib('ALGO');
+//let stdlib = loadStdlib('ALGO');
 dotenv.config();
 
 // Setup readline interface for user input
@@ -151,7 +151,6 @@ const testContracts = async () => {
   let stdlibA = getAlgoStdlib();
 
   // step 1; lock USDC on Algorand
-
   // connect using TESTNET_USER
   const accAlgo = await stdlibA.newAccountFromMnemonic(process.env.TESTNET_USER_MNEMONIC);
   if (stdlibA.balanceOf(accAlgo) < stdlibA.parseCurrency(100) && stdlibA.canFundFromFaucet(accAlgo)) {
@@ -171,7 +170,7 @@ const testContracts = async () => {
   console.log(`  targetChainId = ${targetChainId}`);
   console.log(`  targetTokenId = ${targetTokenId}`);
   console.log(`  bridgedTokens = ${bridgedTokens}`);
-
+  
   // step 2; mint wrapped token on Voi
   // connect using TESTNET_USER
   let stdlibV = getVoiStdlib();
