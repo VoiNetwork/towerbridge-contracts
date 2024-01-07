@@ -1,6 +1,6 @@
 import {loadStdlib} from '@reach-sh/stdlib';
-import * as lockBackend from './build/lock.main.mjs';
-import * as mintBackend from './build/mint.main.mjs';
+import * as lockBackend from './lock.main.mjs';
+import * as mintBackend from './mint.main.mjs';
 import readline from 'readline';
 import { ask } from '@reach-sh/stdlib/ask.mjs';
 import dotenv from 'dotenv';
@@ -14,26 +14,34 @@ const rl = readline.createInterface({
   output: process.stdout
 });
 
+const getAlgoStdlib = () => {
+  let stdlib = loadStdlib('ALGO');
+  stdlib.setProviderByName("TestNet");
+  return stdlib;
+}
+
+const getVoiStdlib = () => {
+  let stdlib = loadStdlib('ALGO');
+  stdlib.setProviderByEnv({
+    ALGO_SERVER: 'https://testnet-api.voi.nodly.io',
+    ALGO_PORT: '',
+    ALGO_TOKEN_HEADER: 'X-Algo-API-Token',
+    ALGO_TOKEN: '',
+    ALGO_INDEXER_SERVER: 'https://testnet-idx.voi.nodly.io',
+    ALGO_INDEXER_PORT: '',
+    ALGO_INDEXER_TOKEN_HEADER: 'X-Indexer-API-Token',
+    ALGO_INDEXER_TOKEN: '',
+    REACH_ISOLATED_NETWORK: 'no',
+    ALGO_NODE_WRITE_ONLY: 'yes',
+  });
+  return stdlib;
+}
+
 // deploy mint contract on Voi
 const deployMintContract = async (network) => {
   console.log(`Deploying Mint Contract...`);
 
-  let stdlib = loadStdlib('ALGO');
-
-  if (network == 'testnet') {
-    stdlib.setProviderByEnv({
-      ALGO_SERVER: 'https://testnet-api.voi.nodly.io',
-      ALGO_PORT: '',
-      ALGO_TOKEN_HEADER: 'X-Algo-API-Token',
-      ALGO_TOKEN: '',
-      ALGO_INDEXER_SERVER: 'https://testnet-idx.voi.nodly.io',
-      ALGO_INDEXER_PORT: '',
-      ALGO_INDEXER_TOKEN_HEADER: 'X-Indexer-API-Token',
-      ALGO_INDEXER_TOKEN: '',
-      REACH_ISOLATED_NETWORK: 'no',
-      ALGO_NODE_WRITE_ONLY: 'yes',
-    });
-  }
+  let stdlib = (network == 'testnet') ? getVoiStdlib() : loadStdlib('ALGO');
 
   const acc = await stdlib.newAccountFromMnemonic(process.env.TESTNET_DEPLOYER_MNEMONIC);
   if (stdlib.balanceOf(acc) < stdlib.parseCurrency(100) && stdlib.canFundFromFaucet(acc)) {
@@ -74,16 +82,12 @@ const deployMintContract = async (network) => {
 
 // deploy lock contract on Algorand
 const deployLockContract = async (network) => {
-  let stdlib = loadStdlib('ALGO');
+  let stdlib = (network == 'testnet') ? getAlgoStdlib() : loadStdlib('ALGO');
 
   const targetTokenId = await ask("Enter the target token ID: ");
   if (targetTokenId == '') {
     console.log("Invalid target token ID");
     return;
-  }
-
-  if (network == 'testnet') {
-    stdlib.setProviderByName("TestNet");
   }
 
   const acc = await stdlib.newAccountFromMnemonic(process.env.TESTNET_DEPLOYER_MNEMONIC);
@@ -111,8 +115,6 @@ const deployLockContract = async (network) => {
     tokenId = tok.id;
   }
 
-  const ctcLock = await acc.contract(lockBackend);
-
   await new Promise(async (resolve, reject) => {
     ctcLock.p.Deployer({
       parameters: {
@@ -127,27 +129,37 @@ const deployLockContract = async (network) => {
         const ctcLockInfo = await ctcLock.getInfo();
         console.log(`The Lock contract is deployed as = ${JSON.stringify(ctcLockInfo)}`);
 
+        const [ sourceTokenIdMaybe, sourceTokenId ] = await ctcLock.v.sourceToken();
+        const [ targetChainIdMaybe, targetChainId ] = await ctcLock.v.targetChainId();
+        const [ targetTokenIdMaybe, targetTokenId ] = await ctcLock.v.targetTokenId(); 
+        const [ bridgedTokensMaybe, bridgedTokens ] = await ctcLock.v.bridgedTokens();
+        console.log(`Lock contract details:`);
+        console.log(`  sourceTokenId = ${sourceTokenId}`);
+        console.log(`  targetChainId = ${targetChainId}`);
+        console.log(`  targetTokenId = ${targetTokenId}`);
+        console.log(`  bridgedTokens = ${bridgedTokens}`);
+      
         resolve();
       }
     });
   });
 }
 
-const testLockContract = async () => {
+const testContracts = async () => {
   console.log('testLockContract');
 
-  let stdlib = loadStdlib('ALGO');
+  let stdlibA = getAlgoStdlib();
+
+  // step 1; lock USDC on Algorand
 
   // connect using TESTNET_USER
-  stdlib.setProviderByName("TestNet");
-  const acc = await stdlib.newAccountFromMnemonic(process.env.TESTNET_USER_MNEMONIC);
-  if (stdlib.balanceOf(acc) < stdlib.parseCurrency(100) && stdlib.canFundFromFaucet(acc)) {
-    await stdlib.fundFromFaucet(acc, stdlib.parseCurrency(100));
+  const accAlgo = await stdlibA.newAccountFromMnemonic(process.env.TESTNET_USER_MNEMONIC);
+  if (stdlibA.balanceOf(accAlgo) < stdlibA.parseCurrency(100) && stdlibA.canFundFromFaucet(accAlgo)) {
+    await stdlibA.fundFromFaucet(accAlgo, stdlibA.parseCurrency(100));
   }
 
   // get the lock contract
-  const ctcLock = acc.contract(lockBackend, process.env.TESTNET_LOCK_CONTRACT);
-  console.log(ctcLock);
+  const ctcLock = accAlgo.contract(lockBackend, JSON.parse(process.env.LOCK_CONTRACT));
   
   // show details
   const [ sourceTokenIdMaybe, sourceTokenId ] = await ctcLock.v.sourceToken();
@@ -159,6 +171,31 @@ const testLockContract = async () => {
   console.log(`  targetChainId = ${targetChainId}`);
   console.log(`  targetTokenId = ${targetTokenId}`);
   console.log(`  bridgedTokens = ${bridgedTokens}`);
+
+  // step 2; mint wrapped token on Voi
+  // connect using TESTNET_USER
+  let stdlibV = getVoiStdlib();
+
+  const accVoi = await stdlibV.newAccountFromMnemonic(process.env.TESTNET_USER_MNEMONIC);
+  if (stdlibV.balanceOf(accVoi) < stdlibV.parseCurrency(100) && stdlibV.canFundFromFaucet(accVoi)) {
+    await stdlibV.fundFromFaucet(accVoi, stdlibV.parseCurrency(100));
+  }
+
+  console.log(stdlibV.formatCurrency(await accVoi.balanceOf()));
+  const ctcMint = accVoi.contract(mintBackend, JSON.parse(process.env.MINT_CONTRACT));
+
+  // show details
+  const [ sourceTokenIdMaybe2, sourceTokenId2 ] = await ctcMint.v.sourceTokenId();
+  const [ sourceChainIdMaybe, sourceChainId ] = await ctcMint.v.sourceChainId();
+  const [ wrappedTokenSupplyMaybe, wrappedTokenSupply ] = await ctcMint.v.wrappedTokenSupply();
+  console.log(`Mint contract details:`);
+  console.log(`  sourceTokenId = ${sourceTokenId2}`);
+  console.log(`  sourceChainId = ${sourceChainId}`);
+  console.log(`  wrappedTokenSupply = ${wrappedTokenSupply}`);
+
+  // get the wrapped token
+  const [ targetTokenIdMaybe2, targetTokenId2 ] = await ctcMint.v.wrappedToken();
+  console.log(`Wrapped token ID = ${targetTokenId2}`);
 
 }
 
@@ -192,7 +229,7 @@ const main = async () => {
   console.log(``);
   console.log(`1. Deploy Mint contract`);
   console.log(`2. Deploy Lock contract`);
-  console.log(`3. Test lock contract`);
+  console.log(`3. Test contracts`);
   console.log(`4. Change network`);
   console.log(`Q. Quit`);
 
@@ -206,7 +243,7 @@ const main = async () => {
           await deployLockContract(network);
           break;
         case '3':
-          await testLockContract(network);
+          await testContracts(network);
           break;
         case '4':
           network = await changeNetwork();
