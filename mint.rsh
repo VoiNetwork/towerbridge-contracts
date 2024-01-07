@@ -26,8 +26,6 @@ export const main = Reach.App(() => {
     const V = View({
         sourceTokenId: UInt,
         sourceChainId: UInt,
-        targetTokenId: UInt,
-        targetChainId: UInt,
         wrappedToken: Token,
         wrappedTokenSupply: UInt,
         wrappedTokenMinted: UInt,
@@ -45,6 +43,7 @@ export const main = Reach.App(() => {
 
     // mint wrapped token
     const wrappedToken = new Token({ name: w_name, symbol: w_symbol, url: w_url, metadata: w_metadata, supply: w_supply, decimals: w_decimals });
+    V.wrappedToken.set(wrappedToken);
 
     commit();
 
